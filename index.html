@@ -399,6 +399,7 @@ textarea{resize:none}
 <script>
 /* STORAGE */
 const K={c:'lc3c',m:'lc3m',b:'lc3b'};
+const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbyoGZNWHytLlt5bINV8eURUPZS22vTmoS19BW7lcbO5mPfQr1Zy3teeBxTOLsHsWxRB/exec';
 const rJ=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}};
 const wJ=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const getCfg=()=>rJ(K.c,null);const saveCfg=c=>wJ(K.c,c);
@@ -447,11 +448,18 @@ const getCtx=msgs=>{
   return[...u,...a].sort((a,b)=>a.ts-b.ts).map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
 };
 const callApi=({sys,hist,msg})=>new Promise((res,rej)=>{
-  if(!window.google?.script?.run){rej(new Error('Cần mở từ Apps Script Web App.'));return}
-  google.script.run
-    .withSuccessHandler(r=>{const t=String(r?.text||'').trim();t?res(t):rej(new Error('Model chưa trả về nội dung, thử lại nhe cục dàng.'))})
-    .withFailureHandler(e=>rej(new Error(e?.message||'Lỗi gửi tin, thử lại nhé cục dàng!')))
-    .geminiChat({system_prompt:sys,lich_su_tin_nhan:hist,tin_nhan_nguoi_dung:msg,generation_config:{temperature:.9,topP:.9,topK:40,maxOutputTokens:1024}});
+  fetch(APPS_SCRIPT_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({system_prompt:sys,lich_su_tin_nhan:hist,tin_nhan_nguoi_dung:msg,generation_config:{temperature:.9,topP:.9,topK:40,maxOutputTokens:1024}}),
+    mode:'cors'
+  })
+  .then(r=>r.ok?r.json():Promise.reject({status:r.status,msg:r.statusText}))
+  .then(d=>{
+    const t=String(d?.text||'').trim();
+    t?res(t):rej(new Error('Model chưa trả về nội dung, thử lại nhe cục dàng.'))
+  })
+  .catch(e=>rej(new Error(e?.msg||'Lỗi gửi tin, thử lại nhé cục dàng!')));
 });
 </script>
 
