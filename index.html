@@ -398,12 +398,13 @@ textarea{resize:none}
 
 <script>
 /* STORAGE */
-const K={c:'lc3c',m:'lc3m',b:'lc3b'};
-const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbxw7GJCaJBpsukSnaGUylcxU0KnbN7Hc-JBwOubs8Y3BD_kr8ZL616JaF93bifjNUjP/exec';
+const K={c:'lc3c',m:'lc3m',b:'lc3b',k:'lc3k'};
 const rJ=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}};
 const wJ=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const getCfg=()=>rJ(K.c,null);const saveCfg=c=>wJ(K.c,c);
 const getMsgs=()=>rJ(K.m,[]);const getMem=()=>rJ(K.b,[]);
+const getKey=()=>rJ(K.k,'');
+const saveKey=k=>wJ(K.k,String(k||'').trim());
 function addMsg(r,c){const m=getMsgs();m.push({role:r,content:c,ts:Date.now()});wJ(K.m,m);return m}
 const clearMsgs=()=>localStorage.removeItem(K.m);
 const clearAll=()=>Object.values(K).forEach(k=>localStorage.removeItem(k));
@@ -447,19 +448,51 @@ const getCtx=msgs=>{
   const a=msgs.filter(m=>m.role==='assistant').slice(-10);
   return[...u,...a].sort((a,b)=>a.ts-b.ts).map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
 };
+
+// Chạy thuần HTML: gọi trực tiếp Gemini REST API.
+// LƯU Ý: API key sẽ nằm ở client (localStorage). Không đưa key lên GitHub public.
+// Nếu bạn muốn người dùng vào là chat luôn: dán key vào hằng số dưới đây.
+// Cảnh báo: deploy public sẽ lộ key trong source. Chỉ dùng khi bạn chấp nhận rủi ro.
+const GEMINI_API_KEY='AIzaSyAj9L75XeetYmYTFEIEU3ZACAKgIQ1KiLA'; // <-- DÁN KEY CỦA BẠN Ở ĐÂY
+const GEMINI_URL=()=>`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent`;
+
 const callApi=({sys,hist,msg})=>new Promise((res,rej)=>{
-  fetch(APPS_SCRIPT_URL,{
+  const apiKey=(String(GEMINI_API_KEY||'').trim()||getKey());
+  if(!apiKey){
+    rej(new Error('Thiếu GEMINI_API_KEY. Bạn cần dán key vào file trước khi deploy.'));
+    return;
+  }
+
+  const body={
+    systemInstruction:{parts:[{text:String(sys||'')} ]},
+    contents:[
+      ...(Array.isArray(hist)?hist:[]),
+      {role:'user',parts:[{text:String(msg||'')} ]}
+    ],
+    generationConfig:{temperature:.9,topP:.9,topK:40,maxOutputTokens:1024}
+  };
+
+  fetch(`${GEMINI_URL()}?key=${encodeURIComponent(apiKey)}` ,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({system_prompt:sys,lich_su_tin_nhan:hist,tin_nhan_nguoi_dung:msg,generation_config:{temperature:.9,topP:.9,topK:40,maxOutputTokens:1024}}),
-    mode:'cors'
+    body:JSON.stringify(body)
   })
-  .then(r=>r.ok?r.json():Promise.reject({status:r.status,msg:r.statusText}))
-  .then(d=>{
-    const t=String(d?.text||'').trim();
-    t?res(t):rej(new Error('Model chưa trả về nội dung, thử lại nhe cục dàng.'))
+  .then(async r=>{
+    const txt=await r.text();
+    let data={};
+    try{data=txt?JSON.parse(txt):{}}catch{data={};}
+    if(!r.ok){
+      const msg=data?.error?.message||r.statusText||'Request failed';
+      throw new Error(msg);
+    }
+    return data;
   })
-  .catch(e=>rej(new Error(e?.msg||'Lỗi gửi tin, thử lại nhé cục dàng!')));
+  .then(data=>{
+    const text=((data.candidates||[])[0]?.content?.parts||[]).map(p=>p?.text||'').join('').trim();
+    if(!text) throw new Error('Gemini không trả về text.');
+    res(text);
+  })
+  .catch(err=>rej(new Error(err?.message||'Lỗi gọi Gemini.')));
 });
 </script>
 
@@ -553,7 +586,7 @@ function renderSetup(){
                 ${['Nữ','Nam','Khác'].map(g=>`<option${cfg.aigender===g?' selected':''}>${g}</option>`).join('')}
               </select>
             </div>
-            <div class="notice"> Khóa API bảo vệ qua Apps Script — client không bao giờ nhận key trực tiếp.</div>
+            <div class="notice"> Chat chạy trực tiếp trên trình duyệt (client-side).</div>
             <button type="submit" class="btn bprimary bfull">Bắt đầu chat ngay</button>
           </form>
         </div>
@@ -619,7 +652,7 @@ function renderChat(){
               </button>
             </div>
             <div class="cstatus" id="cst"></div>
-            <p class="cnote"> API Key bảo vệ qua Apps Script</p>
+            <p class="cnote"> Chat dùng Gemini trực tiếp (client-side)</p>
           </footer>
         </section>
         <aside class="sidebar">
@@ -716,7 +749,7 @@ window.addEventListener('hashchange',renderRoute);
 window.addEventListener('DOMContentLoaded',()=>{initTheme();startH();if(!window.location.hash)nav('/setup');else renderRoute()});
 </script>
 
-<!-- Apps Script / embedded fallback: ensure mobile viewport + larger touch targets -->
+<!-- Embedded/mobile fallback: ensure viewport + touch targets -->
 <script>
 (function(){
   try{
